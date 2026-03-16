@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DPI Console — Deep Packet Inspection</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #050a0f;
+    --surface:   #0b1520;
+    --border:    #0f2d45;
+    --accent:    #00d4ff;
+    --accent2:   #00ff9d;
+    --warn:      #ffaa00;
+    --danger:    #ff3c5a;
+    --text:      #c8dde8;
+    --muted:     #4a6b80;
+    --glow:      0 0 18px rgba(0,212,255,.35);
+    --glow2:     0 0 18px rgba(0,255,157,.3);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Exo 2', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,.07) 2px,
+      rgba(0,0,0,.07) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    clip-path: polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px; font-weight: bold; color: #000;
+    animation: hexpulse 3s ease-in-out infinite;
+  }
+  @keyframes hexpulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(0,212,255,.4); }
+    50%      { box-shadow: 0 0 0 8px rgba(0,212,255,0); }
+  }
+  .logo-text {
+    font-size: 18px; font-weight: 700; letter-spacing: 3px;
+    color: var(--accent);
+    text-shadow: var(--glow);
+  }
+  .logo-sub {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px; color: var(--muted); letter-spacing: 2px;
+  }
+
+  .header-right {
+    display: flex; align-items: center; gap: 20px;
+  }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 14px;
+    background: rgba(0,255,157,.08);
+    border: 1px solid var(--accent2);
+    border-radius: 20px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; color: var(--accent2);
+  }
+  .pulse-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent2);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+  .time-display {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px; color: var(--muted);
+  }
+
+  /* ── Layout ── */
+  .container { padding: 20px 24px; }
+
+  /* ── KPI Row ── */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  @media(max-width:1100px){ .kpi-row{ grid-template-columns: repeat(3,1fr); } }
+  @media(max-width:600px) { .kpi-row{ grid-template-columns: repeat(2,1fr); } }
+
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    position: relative; overflow: hidden;
+    transition: border-color .3s;
+  }
+  .kpi::before {
+    content:''; position:absolute; top:0; left:0; right:0; height:2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    opacity: .6;
+  }
+  .kpi:hover { border-color: var(--accent); }
+  .kpi-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px; color: var(--muted); letter-spacing: 1.5px;
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+  .kpi-value {
+    font-size: 22px; font-weight: 700; color: var(--accent);
+    text-shadow: var(--glow);
+    font-family: 'Share Tech Mono', monospace;
+    transition: all .3s;
+  }
+  .kpi-value.danger  { color: var(--danger); text-shadow: 0 0 12px rgba(255,60,90,.4); }
+  .kpi-value.warn    { color: var(--warn);   text-shadow: 0 0 12px rgba(255,170,0,.35); }
+  .kpi-value.green   { color: var(--accent2);text-shadow: var(--glow2); }
+  .kpi-unit { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* ── Main grid ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 340px;
+    grid-template-rows: auto auto;
+    gap: 16px;
+  }
+  @media(max-width:1200px){ .main-grid{ grid-template-columns: 1fr 1fr; } }
+  @media(max-width:800px) { .main-grid{ grid-template-columns: 1fr; } }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,212,255,.03);
+  }
+  .panel-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; letter-spacing: 2px;
+    color: var(--accent); text-transform: uppercase;
+  }
+  .panel-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px; color: var(--muted);
+    background: rgba(255,255,255,.04);
+    padding: 2px 8px; border-radius: 3px;
+  }
+  .panel-body { padding: 14px; }
+
+  /* ── Throughput chart ── */
+  #throughputChart { height: 180px !important; }
+
+  /* ── Protocol donut ── */
+  .chart-wrap { position: relative; height: 200px; }
+  #protocolChart { height: 200px !important; }
+
+  /* ── Packet feed ── */
+  .feed-panel { grid-column: 3; grid-row: 1 / 3; }
+  @media(max-width:1200px){ .feed-panel{ grid-column: auto; grid-row: auto; } }
+
+  .packet-table {
+    width: 100%; border-collapse: collapse;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px;
+  }
+  .packet-table th {
+    color: var(--muted); text-align: left;
+    padding: 4px 8px; border-bottom: 1px solid var(--border);
+    font-size: 10px; letter-spacing: 1px;
+  }
+  .packet-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(15,45,69,.6);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;
+  }
+  .packet-table tr { transition: background .15s; }
+  .packet-table tr:hover td { background: rgba(0,212,255,.04); }
+  .packet-table tr.new-row { animation: fadeIn .4s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateX(-6px); } to { opacity:1; transform:none; } }
+
+  .risk-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 9px; font-weight: 600; letter-spacing: .5px;
+  }
+  .risk-LOW    { background: rgba(0,255,157,.12); color: var(--accent2); border: 1px solid rgba(0,255,157,.25); }
+  .risk-MEDIUM { background: rgba(255,170,0,.12);  color: var(--warn);    border: 1px solid rgba(255,170,0,.25); }
+  .risk-HIGH   { background: rgba(255,60,90,.14);  color: var(--danger);  border: 1px solid rgba(255,60,90,.3); }
+  .risk-CRITICAL { background: rgba(255,60,90,.3); color: #fff; border: 1px solid var(--danger); }
+
+  /* ── Alert panel ── */
+  .alert-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+  .alert-list::-webkit-scrollbar { width: 4px; }
+  .alert-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .alert-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 12px;
+    background: rgba(255,60,90,.05);
+    border: 1px solid rgba(255,60,90,.15);
+    border-left: 3px solid var(--danger);
+    border-radius: 4px;
+    animation: fadeIn .4s ease;
+  }
+  .alert-item.warn {
+    background: rgba(255,170,0,.05);
+    border-color: rgba(255,170,0,.2);
+    border-left-color: var(--warn);
+  }
+  .alert-icon { font-size: 16px; margin-top: 1px; }
+  .alert-title { font-weight: 600; font-size: 12px; color: var(--text); }
+  .alert-desc  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .alert-time  { font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--muted); }
+  .no-alerts   { font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--muted); text-align:center; padding: 20px; }
+
+  /* ── Protocol breakdown bars ── */
+  .proto-bars { display: flex; flex-direction: column; gap: 8px; }
+  .proto-row { display: flex; align-items: center; gap: 10px; }
+  .proto-name { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text); width: 90px; flex-shrink: 0; }
+  .proto-bar-wrap { flex: 1; height: 6px; background: rgba(255,255,255,.06); border-radius: 3px; overflow: hidden; }
+  .proto-bar { height: 100%; border-radius: 3px; transition: width .6s ease; }
+  .proto-pct { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--muted); width: 36px; text-align: right; }
+
+  /* ── Geo / top-talkers ── */
+  .talker-list { display: flex; flex-direction: column; gap: 6px; }
+  .talker-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 4px; background: rgba(255,255,255,.025); }
+  .talker-ip { font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--accent); }
+  .talker-bytes { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--muted); }
+
+  /* ── Footer ── */
+  footer {
+    margin-top: 20px; padding: 12px 24px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--muted);
+  }
+  .footer-api { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">DPI</div>
+    <div>
+      <div class="logo-text">NETINSPECT</div>
+      <div class="logo-sub">DEEP PACKET INSPECTION CONSOLE</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill"><div class="pulse-dot"></div>LIVE CAPTURE</div>
+    <div class="time-display" id="clockDisplay">--:--:--</div>
+  </div>
+</header>
+
+<!-- ── Container ── -->
+<div class="container">
+
+  <!-- KPI Row -->
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">Total Packets</div>
+      <div class="kpi-value" id="kpiPackets">0</div>
+      <div class="kpi-unit">captured</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Throughput</div>
+      <div class="kpi-value green" id="kpiThroughput">0.00</div>
+      <div class="kpi-unit">Mbps</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Pkt / sec</div>
+      <div class="kpi-value" id="kpiPps">0</div>
+      <div class="kpi-unit">packets/s</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Active Flows</div>
+      <div class="kpi-value green" id="kpiFlows">0</div>
+      <div class="kpi-unit">sessions</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Total Bytes</div>
+      <div class="kpi-value" id="kpiBytes">0</div>
+      <div class="kpi-unit">MB transferred</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Active Alerts</div>
+      <div class="kpi-value danger" id="kpiAlerts">0</div>
+      <div class="kpi-unit">unresolved</div>
+    </div>
+  </div>
+
+  <!-- Main Grid -->
+  <div class="main-grid">
+
+    <!-- Throughput chart -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">⬡ Throughput (Mbps)</span>
+        <span class="panel-badge" id="throughputBadge">LIVE</span>
+      </div>
+      <div class="panel-body">
+        <canvas id="throughputChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Protocol distribution -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">⬡ Protocol Distribution</span>
+        <span class="panel-badge">LAYER 7</span>
+      </div>
+      <div class="panel-body">
+        <div class="proto-bars" id="protoBars"></div>
+      </div>
+    </div>
+
+    <!-- Packet feed — spans 2 rows -->
+    <div class="panel feed-panel">
+      <div class="panel-header">
+        <span class="panel-title">⬡ Live Packet Feed</span>
+        <span class="panel-badge" id="feedCount">0 pkts</span>
+      </div>
+      <div class="panel-body" style="padding:0">
+        <table class="packet-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Dst</th>
+              <th>Proto</th>
+              <th>Len</th>
+              <th>Risk</th>
+            </tr>
+          </thead>
+          <tbody id="packetFeed"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">⬡ Security Alerts</span>
+        <span class="panel-badge" id="alertBadge">0 active</span>
+      </div>
+      <div class="panel-body">
+        <div class="alert-list" id="alertList">
+          <div class="no-alerts">No active alerts — system nominal</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top talkers -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">⬡ Top Talkers</span>
+        <span class="panel-badge">BY VOLUME</span>
+      </div>
+      <div class="panel-body">
+        <div class="talker-list" id="talkerList"></div>
+      </div>
+    </div>
+
+  </div><!-- /main-grid -->
+</div><!-- /container -->
+
+<footer>
+  <span>NETINSPECT DPI v1.0 — Spring Boot Backend</span>
+  <span class="footer-api" id="apiStatus">API → http://localhost:8080/api/dpi/stats</span>
+  <span id="lastUpdate">Last update: --</span>
+</footer>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+const API_BASE = 'http://localhost:8080/api/dpi';
+const MAX_FEED_ROWS = 40;
+const MAX_CHART_POINTS = 30;
+
+let throughputHistory = Array(MAX_CHART_POINTS).fill(0);
+let ppsHistory        = Array(MAX_CHART_POINTS).fill(0);
+let allPackets = [];
+let talkerMap  = {};
+
+// ─── Throughput Chart ─────────────────────────────────────────────────────────
+const tCtx = document.getElementById('throughputChart').getContext('2d');
+const throughputChart = new Chart(tCtx, {
+  type: 'line',
+  data: {
+    labels: Array(MAX_CHART_POINTS).fill(''),
+    datasets: [
+      {
+        label: 'Throughput (Mbps)',
+        data: [...throughputHistory],
+        borderColor: '#00d4ff',
+        backgroundColor: 'rgba(0,212,255,.08)',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.4,
+        fill: true,
+      },
+      {
+        label: 'Pkt/s (×0.1)',
+        data: [...ppsHistory],
+        borderColor: '#00ff9d',
+        backgroundColor: 'rgba(0,255,157,.05)',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.4,
+        fill: true,
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 300 },
+    scales: {
+      x: { display: false },
+      y: {
+        beginAtZero: true,
+        grid: { color: 'rgba(15,45,69,.8)' },
+        ticks: { color: '#4a6b80', font: { family: 'Share Tech Mono', size: 10 } }
+      }
+    },
+    plugins: {
+      legend: { labels: { color: '#4a6b80', font: { size: 10 } } }
+    }
+  }
+});
+
+// ─── Protocol Bars ────────────────────────────────────────────────────────────
+const PROTO_COLORS = {
+  'HTTP':        '#00d4ff',
+  'HTTPS/TLS':   '#00ff9d',
+  'DNS':         '#ffaa00',
+  'FTP':         '#ff3c5a',
+  'SSH':         '#a78bfa',
+  'SMTP':        '#fb923c',
+  'UDP-Other':   '#64748b',
+};
+
+function renderProtoBars(distribution) {
+  const total = Object.values(distribution).reduce((a,b) => a+b, 0) || 1;
+  const container = document.getElementById('protoBars');
+  container.innerHTML = '';
+  Object.entries(distribution)
+    .sort((a,b) => b[1]-a[1])
+    .forEach(([proto, count]) => {
+      const pct = Math.round((count / total) * 100);
+      const color = PROTO_COLORS[proto] || '#4a6b80';
+      container.innerHTML += `
+        <div class="proto-row">
+          <span class="proto-name">${proto}</span>
+          <div class="proto-bar-wrap">
+            <div class="proto-bar" style="width:${pct}%;background:${color}"></div>
+          </div>
+          <span class="proto-pct">${pct}%</span>
+        </div>`;
+    });
+}
+
+// ─── Packet Feed ──────────────────────────────────────────────────────────────
+function addPacketsToFeed(packets) {
+  const tbody = document.getElementById('packetFeed');
+  packets.forEach(p => {
+    // track top talkers
+    talkerMap[p.src] = (talkerMap[p.src] || 0) + p.length;
+
+    const tr = document.createElement('tr');
+    tr.className = 'new-row';
+    tr.innerHTML = `
+      <td title="${p.src}">${p.src}</td>
+      <td title="${p.dst}">${p.dst.split('.').slice(-2).join('.')}</td>
+      <td>${p.protocol}</td>
+      <td>${p.length}</td>
+      <td><span class="risk-badge risk-${p.risk}">${p.risk}</span></td>`;
+    tbody.prepend(tr);
+    allPackets++;
+  });
+
+  // Trim feed
+  while (tbody.rows.length > MAX_FEED_ROWS) {
+    tbody.deleteRow(tbody.rows.length - 1);
+  }
+  document.getElementById('feedCount').textContent = `${tbody.rows.length} pkts`;
+}
+
+// ─── Top Talkers ──────────────────────────────────────────────────────────────
+function renderTalkers() {
+  const sorted = Object.entries(talkerMap).sort((a,b) => b[1]-a[1]).slice(0,6);
+  const max = sorted[0]?.[1] || 1;
+  const container = document.getElementById('talkerList');
+  container.innerHTML = '';
+  sorted.forEach(([ip, bytes]) => {
+    const kb = (bytes/1024).toFixed(1);
+    container.innerHTML += `
+      <div class="talker-row">
+        <span class="talker-ip">${ip}</span>
+        <span class="talker-bytes">${kb} KB</span>
+      </div>`;
+  });
+}
+
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+let shownAlertIds = new Set();
+
+function renderAlerts(count) {
+  // For demo without backend: generate synthetic alerts occasionally
+  const container = document.getElementById('alertList');
+  if (count === 0 && container.children.length <= 1) return;
+
+  document.getElementById('alertBadge').textContent = count + ' active';
+  document.getElementById('kpiAlerts').textContent  = count;
+}
+
+function injectSyntheticAlert(msg, sev) {
+  const container = document.getElementById('alertList');
+  const noAlerts  = container.querySelector('.no-alerts');
+  if (noAlerts) noAlerts.remove();
+
+  const item = document.createElement('div');
+  item.className = 'alert-item' + (sev === 'WARNING' ? ' warn' : '');
+  const icon = sev === 'CRITICAL' ? '🔴' : '🟡';
+  const now  = new Date().toLocaleTimeString();
+  item.innerHTML = `
+    <div class="alert-icon">${icon}</div>
+    <div>
+      <div class="alert-title">${msg.title}</div>
+      <div class="alert-desc">${msg.desc}</div>
+      <div class="alert-time">${now}</div>
+    </div>`;
+  container.prepend(item);
+
+  // Keep max 8 alerts visible
+  while (container.children.length > 8) container.lastChild.remove();
+
+  const current = parseInt(document.getElementById('kpiAlerts').textContent) || 0;
+  document.getElementById('kpiAlerts').textContent = current + 1;
+  document.getElementById('alertBadge').textContent = (current+1) + ' active';
+}
+
+// ─── Update KPIs ─────────────────────────────────────────────────────────────
+function updateKPIs(data) {
+  document.getElementById('kpiPackets').textContent    = data.totalPackets.toLocaleString();
+  document.getElementById('kpiThroughput').textContent = data.throughputMbps.toFixed(2);
+  document.getElementById('kpiPps').textContent        = data.packetsPerSecond.toLocaleString();
+  document.getElementById('kpiFlows').textContent      = data.activeFlows.toLocaleString();
+  document.getElementById('kpiBytes').textContent      = (data.totalBytes / 1_048_576).toFixed(2);
+
+  // Update throughput chart
+  throughputHistory.push(data.throughputMbps);
+  throughputHistory.shift();
+  ppsHistory.push(data.packetsPerSecond / 10);
+  ppsHistory.shift();
+
+  throughputChart.data.datasets[0].data = [...throughputHistory];
+  throughputChart.data.datasets[1].data = [...ppsHistory];
+  throughputChart.update('none');
+}
+
+// ─── Main polling loop ────────────────────────────────────────────────────────
+let useSimulation = false;   // flips to true if backend unreachable
+
+async function fetchStats() {
+  try {
+    const res  = await fetch(`${API_BASE}/stats`, { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+    useSimulation = false;
+    document.getElementById('apiStatus').style.color = '#00ff9d';
+
+    updateKPIs(data);
+    renderProtoBars(data.protocolDistribution);
+    addPacketsToFeed(data.recentPackets);
+    renderTalkers();
+    renderAlerts(data.alertCount || 0);
+    document.getElementById('lastUpdate').textContent =
+      'Last update: ' + new Date().toLocaleTimeString();
+
+  } catch {
+    // Backend unreachable → run client-side simulation
+    useSimulation = true;
+    document.getElementById('apiStatus').style.color = '#ffaa00';
+    document.getElementById('apiStatus').textContent = 'API → SIMULATED (backend offline)';
+    runSimulation();
+  }
+}
+
+// ─── Client-side simulation (when backend is offline) ─────────────────────────
+const PROTOS  = ['HTTP','HTTPS/TLS','DNS','FTP','SSH','SMTP','UDP-Other'];
+const IPS     = ['192.168.1.','10.0.0.','172.16.0.','203.0.113.'];
+const RISKS   = ['LOW','LOW','LOW','MEDIUM','HIGH'];
+let simPackets = 0, simBytes = 0;
+const simProtoCounts = {};
+PROTOS.forEach(p => simProtoCounts[p] = 0);
+
+function rand(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+function randIp(){ return IPS[rand(0,3)] + rand(1,254); }
+
+function runSimulation() {
+  const burst = rand(5,20);
+  const pkts  = [];
+  for(let i=0;i<burst;i++){
+    const proto = PROTOS[rand(0,PROTOS.length-1)];
+    const len   = rand(64,1460);
+    const risk  = RISKS[rand(0,4)];
+    simProtoCounts[proto]++;
+    simBytes += len; simPackets++;
+    pkts.push({ src: randIp(), dst: randIp(), protocol: proto, length: len, risk });
+  }
+
+  const mbps = parseFloat((Math.random()*99+1).toFixed(2));
+  const pps  = rand(50,500);
+
+  updateKPIs({
+    totalPackets: simPackets,
+    throughputMbps: mbps,
+    packetsPerSecond: pps,
+    activeFlows: rand(10,200),
+    totalBytes: simBytes,
+    alertCount: 0
+  });
+  renderProtoBars({...simProtoCounts});
+  addPacketsToFeed(pkts);
+  renderTalkers();
+
+  // Occasionally inject a synthetic alert
+  if(Math.random() < 0.04) {
+    injectSyntheticAlert(
+      { title:'Suspicious HIGH-risk packet detected',
+        desc:`Src: ${randIp()} → FTP cleartext detected` },
+      'CRITICAL'
+    );
+  } else if(Math.random() < 0.06) {
+    injectSyntheticAlert(
+      { title:'Unencrypted FTP transfer', desc:`Port 21 traffic from ${randIp()}` },
+      'WARNING'
+    );
+  }
+
+  document.getElementById('lastUpdate').textContent =
+    'Last update: ' + new Date().toLocaleTimeString();
+}
+
+// ─── Clock ────────────────────────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clockDisplay').textContent =
+    new Date().toLocaleTimeString('en-GB');
+}, 1000);
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+fetchStats();
+setInterval(fetchStats, 2000);
+</script>
+</body>
+</html>
