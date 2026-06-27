@@ -65,4 +65,10 @@ public class DpiController {
         dpiService.reset();
         return ResponseEntity.ok(Map.of("status", "reset complete"));
     }
+
+    // ── Health check for UptimeRobot ──────────────
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("DPI System Running");
+    }
 }
