@@ -13,7 +13,7 @@ COPY --from=build /app/target/dpi-system-1.0.0.jar app.jar
 EXPOSE 8080
 
 ENTRYPOINT ["java", \
-  "-Xms128m", \
-  "-Xmx400m", \
+  "-Xms64m", \
+  "-Xmx200m", \
   "-jar", "app.jar", \
   "--spring.profiles.active=prod"]
